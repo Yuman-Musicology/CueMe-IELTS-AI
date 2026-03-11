@@ -1,0 +1,5 @@
+Tech Stack: Next.js (App Router), Tailwind CSS, Shadcn UI, Framer Motion, Supabase.
+Design Vibe: Modern SaaS, minimalist, large border-radius (2xl to 3xl), heavy on whitespace (breathing room).
+Color Palette: Main Background #F5F2ED, Card Background #FFFFFF, Primary Accent #FACC15 (Yellow), Secondary Text #666666.
+Typography: High contrast in font sizes, bold headings, clean sans-serif.
+Code Style: Functional components, TypeScript, concise logic.
