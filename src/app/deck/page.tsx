@@ -68,13 +68,12 @@ export default function DeckPage() {
           </div>
           <Link
             href="/forge"
-            className="inline-flex iter gap-2 rounded-2xl bg-[#1A1A1A] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A]"
+            className="inline-flex items-centerounded-2xl bg-[#1A1A1A] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A]"
           >
             <ArrowLeft className="h-4 w-4" />
             返回首页继续生成
           </Link>
         </div>
-
         {data.length === 0 ? (
           <div className="rounded-[32px] bg-white px-8 py-14 text-center shadow-sm">
             <h2 className="mb-3 text-2xl font-bold text-[#1A1A1A]">卡组还是空的</h2>
@@ -90,12 +89,12 @@ export default function DeckPage() {
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {data.map((ite    const isLong = (item.script?.length ?? 0) > SCRIPT_PREVIEW_LENGTH;
-              const visibleScript =
-                expanded || !isLong
-                  ? item.script
-                  : item.script?.slice(0, SCRIPT_PREVIEW_LENGTH).trim() + "...";
-
+            {data.map((item) => {
+              const expanded = expandedIds.includes(item.id);
+              const isLong = (item.script?.length ?? 0) > SCRIPT_PREVIEW_LENGTH;
+              const visibleScript = expanded || !isLong
+                ? item.script
+                : item.script?.slice(0, SCRIPT_PREVIEW_LENGTH).trim() + "...";
               return (
                 <article key={item.id} className="flex h-full flex-col rounded-[28px] bg-white p-6 shadow-sm">
                   <div className="mb-5 flex items-start justify-between gap-4">
@@ -120,8 +119,8 @@ export default function DeckPage() {
                   </div>
                   {isLong && (
                     <button onClick={() => toggleExpand(item.id)} className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[#7C7873] hover:text-[#1A1A1A]">
-                      {expanded ? "收文" : "点击展开"}
-                    </button>
+                      {expanded ? "收起全文" : "点击展开"}
+    </button>
                   )}
                   <div className="mt-auto border-t border-[#F2EFEA] pt-4 text-xs text-[#A49E96]">
                     {item.created_at ? new Date(item.created_at).toLocaleDateString() : "刚刚保存"}
@@ -135,4 +134,3 @@ export default function DeckPage() {
     </div>
   );
 }
-// force redeploy Wed Mar 11 23:19:23 GMT 2026
