@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { BookMarked, BookOpen, Mic } from "lucide-react";
 
 const navItems = [
@@ -24,6 +24,7 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <aside className="fixed left-6 top-1/2 z-50 -translate-y-1/2">
@@ -36,6 +37,15 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={(event) => {
+                if (pathname === item.href) return;
+
+                event.preventDefault();
+                router.push(item.href);
+                requestAnimationFrame(() => {
+                  router.refresh();
+                });
+              }}
               title={item.label}
               aria-label={item.label}
               className={[

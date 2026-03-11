@@ -125,7 +125,7 @@ interface ForgeResultCardProps {
   card: Card;
 }
 
-const CORPUS_STORAGE_KEY = "cueme_user_corpus";
+const STORAGE_KEY = "cueme_user_corpus";
 const SCENE_TAGS = ["人物", "地点", "事物", "事件"] as const;
 
 interface LocalCorpusItem {
@@ -172,8 +172,10 @@ export default function ForgeResultCard({ card }: ForgeResultCardProps) {
     if (typeof window === "undefined") return;
 
     try {
-      const raw = localStorage.getItem(CORPUS_STORAGE_KEY);
-      const existing = raw ? (JSON.parse(raw) as LocalCorpusItem[]) : [];
+      const existing = JSON.parse(
+        localStorage.getItem(STORAGE_KEY) || "[]"
+      ) as unknown;
+      const corpus = Array.isArray(existing) ? (existing as LocalCorpusItem[]) : [];
       const nextItem: LocalCorpusItem = {
         id: card.id,
         title: card.title,
@@ -183,14 +185,15 @@ export default function ForgeResultCard({ card }: ForgeResultCardProps) {
         created_at: new Date().toISOString(),
       };
 
-      const deduped = existing.filter(
+      const deduped = corpus.filter(
         (item) => item.id !== card.id && item.cue_card !== card.cue_card
       );
+      deduped.push(nextItem);
 
-      localStorage.setItem(
-        CORPUS_STORAGE_KEY,
-        JSON.stringify([nextItem, ...deduped])
-      );
+      const dataToSave = deduped;
+      console.log("Saving data:", dataToSave);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
 
       setSaved(true);
       setIsModalOpen(false);

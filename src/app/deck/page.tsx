@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 
-const CORPUS_STORAGE_KEY = "cueme_user_corpus";
+const STORAGE_KEY = "cueme_user_corpus";
 const SCRIPT_PREVIEW_LENGTH = 220;
 
 interface DeckItem {
@@ -16,60 +16,68 @@ interface DeckItem {
   created_at: string;
 }
 
-function readCorpus(): DeckItem[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = localStorage.getItem(CORPUS_STORAGE_KEY);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .filter(
-        (item): item is DeckItem =>
-          Boolean(
-            item &&
-              typeof item === "object" &&
-              "id" in item &&
-              "cue_card" in item &&
-              "script" in item
-          )
-      )
-      .sort((a, b) => {
-        const aTime = new Date(a.created_at).getTime();
-        const bTime = new Date(b.created_at).getTime();
-        return bTime - aTime;
-      });
-  } catch (error) {
-    console.warn("[Deck] failed to read local corpus:", error);
-    return [];
-  }
-}
-
 function writeCorpus(items: DeckItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(CORPUS_STORAGE_KEY, JSON.stringify(items));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
 export default function DeckPage() {
-  const [cards, setCards] = useState<DeckItem[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [data, setData] = useState<DeckItem[]>([]);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
-  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      setCards(readCorpus());
-      setHydrated(true);
+      try {
+        console.log("Reading data from key:", STORAGE_KEY);
+        const raw = localStorage.getItem(STORAGE_KEY) || "[]";
+        const parsed = JSON.parse(raw) as unknown;
+
+        if (!Array.isArray(parsed)) {
+          console.warn("[Deck] local corpus is not an array, resetting.");
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+          const nextData: DeckItem[] = [];
+          console.log("Loaded data:", nextData);
+          setData(nextData);
+          return;
+        }
+
+        const nextData = parsed
+          .filter(
+            (item): item is DeckItem =>
+              Boolean(
+                item &&
+                  typeof item === "object" &&
+                  "id" in item &&
+                  "cue_card" in item &&
+                  "script" in item
+              )
+          )
+          .sort((a, b) => {
+            const aTime = new Date(a.created_at).getTime();
+            const bTime = new Date(b.created_at).getTime();
+            return bTime - aTime;
+          });
+
+        console.log("Loaded data:", nextData);
+        setData(nextData);
+      } catch (error) {
+        console.warn("[Deck] failed to read local corpus:", error);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+        const nextData: DeckItem[] = [];
+        console.log("Loaded data:", nextData);
+        setData(nextData);
+      } finally {
+        setMounted(true);
+      }
     });
 
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
   function handleDelete(id: string) {
-    const next = cards.filter((item) => item.id !== id);
-    setCards(next);
+    const next = data.filter((item) => item.id !== id);
+    setData(next);
     writeCorpus(next);
     setExpandedIds((current) => current.filter((itemId) => itemId !== id));
   }
@@ -79,6 +87,18 @@ export default function DeckPage() {
       current.includes(id)
         ? current.filter((itemId) => itemId !== id)
         : [...current, id]
+    );
+  }
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-[#F5F2ED] px-4 py-10 md:px-8">
+        <div className="mx-auto w-full max-w-6xl">
+          <div className="rounded-[32px] bg-white px-8 py-12 text-center text-sm text-[#9B948C] shadow-sm">
+            正在读取你的本地卡组...
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -102,11 +122,7 @@ export default function DeckPage() {
           </Link>
         </div>
 
-        {!hydrated ? (
-          <div className="rounded-[32px] bg-white px-8 py-12 text-center text-sm text-[#9B948C] shadow-sm">
-            正在读取你的本地卡组...
-          </div>
-        ) : cards.length === 0 ? (
+        {mounted && data.length === 0 ? (
           <div className="rounded-[32px] bg-white px-8 py-14 text-center shadow-sm">
             <h2 className="mb-3 text-2xl font-bold text-[#1A1A1A]">卡组还是空的</h2>
             <p className="mx-auto mb-6 max-w-xl text-sm leading-relaxed text-[#7C7873]">
@@ -121,7 +137,7 @@ export default function DeckPage() {
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {cards.map((item) => {
+            {data.map((item) => {
               const expanded = expandedIds.includes(item.id);
               const isLong = item.script.length > SCRIPT_PREVIEW_LENGTH;
               const visibleScript =
