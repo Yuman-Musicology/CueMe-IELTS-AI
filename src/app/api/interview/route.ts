@@ -54,9 +54,22 @@ interface SpeakingFeedbackResponse {
 
 let genAI: GoogleGenerativeAI | null = null;
 
+function getGeminiApiKey() {
+  const apiKey =
+    process.env.GOOGLE_AI_STUDIO_API_KEY || process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "Missing Gemini API key. Please configure GOOGLE_AI_STUDIO_API_KEY."
+    );
+  }
+
+  return apiKey;
+}
+
 function getGenAI() {
   if (!genAI) {
-    genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_STUDIO_API_KEY!);
+    genAI = new GoogleGenerativeAI(getGeminiApiKey());
   }
 
   return genAI;

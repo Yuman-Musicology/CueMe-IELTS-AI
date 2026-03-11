@@ -14,9 +14,23 @@ const DAILY_LIMIT = 5;
 // ---------------------------------------------------------------------------
 
 let _genAI: GoogleGenerativeAI | null = null;
+function getGeminiApiKey() {
+  const apiKey =
+    process.env.GOOGLE_AI_STUDIO_API_KEY || process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "Missing Gemini API key. Please configure GOOGLE_AI_STUDIO_API_KEY."
+    );
+  }
+
+  return apiKey;
+}
+
 function getGenAI() {
-  if (!_genAI)
-    _genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_STUDIO_API_KEY!);
+  if (!_genAI) {
+    _genAI = new GoogleGenerativeAI(getGeminiApiKey());
+  }
   return _genAI;
 }
 
@@ -123,77 +137,76 @@ function json(data: unknown, status = 200) {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
-  // ── 1. Try to authenticate (optional — guest mode fallback) ──────────────
-  let userId: string | null = null;
+  try {
+    // ── 1. Try to authenticate (optional — guest mode fallback) ────────────
+    let userId: string | null = null;
 
-  const authHeader = req.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    try {
-      const token = authHeader.slice(7);
-      const authClient = createAuthClient(token);
-      const {
-        data: { user },
-        error: authError,
-      } = await authClient.auth.getUser();
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const token = authHeader.slice(7);
+        const authClient = createAuthClient(token);
+        const {
+          data: { user },
+          error: authError,
+        } = await authClient.auth.getUser();
 
-      if (!authError && user) {
-        userId = user.id;
+        if (!authError && user) {
+          userId = user.id;
+        }
+      } catch {
+        // Auth failed — fall through to guest mode
       }
+    }
+
+    const isGuest = !userId;
+
+    // ── 2. Parse request body ──────────────────────────────────────────────
+    let body: { cue_card?: string; user_story?: string };
+    try {
+      body = await req.json();
     } catch {
-      // Auth failed — fall through to guest mode
-    }
-  }
-
-  const isGuest = !userId;
-
-  // ── 2. Parse request body ────────────────────────────────────────────────
-  let body: { cue_card?: string; user_story?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const { cue_card, user_story } = body;
-  if (!user_story?.trim()) {
-    return json({ error: "user_story is required" }, 400);
-  }
-
-  // ── 3. Rate-limit (authenticated users only) ─────────────────────────────
-  let admin: ReturnType<typeof createAdminClient> | null = null;
-
-  if (!isGuest) {
-    admin = createAdminClient();
-    const today = new Date().toISOString().slice(0, 10);
-
-    const { count, error: countError } = await admin
-      .from("forge_usage")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .gte("created_at", `${today}T00:00:00Z`)
-      .lt("created_at", `${today}T23:59:59.999Z`);
-
-    if (countError) {
-      return json({ error: "Failed to check usage quota" }, 500);
+      return json({ error: "Invalid JSON body" }, 400);
     }
 
-    if ((count ?? 0) >= DAILY_LIMIT) {
-      return json(
-        {
-          error: "Daily forge limit reached",
-          limit: DAILY_LIMIT,
-          reset: `${today}T00:00:00Z (next day)`,
-        },
-        429
-      );
+    const { cue_card, user_story } = body;
+    if (!user_story?.trim()) {
+      return json({ error: "user_story is required" }, 400);
     }
-  }
 
-  // ── 4. Call Gemini ───────────────────────────────────────────────────────
-  let forgeResult: ForgeResult;
-  try {
+    // ── 3. Rate-limit (authenticated users only) ───────────────────────────
+    let admin: ReturnType<typeof createAdminClient> | null = null;
+
+    if (!isGuest) {
+      admin = createAdminClient();
+      const today = new Date().toISOString().slice(0, 10);
+
+      const { count, error: countError } = await admin
+        .from("forge_usage")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gte("created_at", `${today}T00:00:00Z`)
+        .lt("created_at", `${today}T23:59:59.999Z`);
+
+      if (countError) {
+        throw new Error(`Failed to check usage quota: ${countError.message}`);
+      }
+
+      if ((count ?? 0) >= DAILY_LIMIT) {
+        return json(
+          {
+            error: "Daily forge limit reached",
+            limit: DAILY_LIMIT,
+            reset: `${today}T00:00:00Z (next day)`,
+          },
+          429
+        );
+      }
+    }
+
+    // ── 4. Call Gemini ─────────────────────────────────────────────────────
     const model = getGenAI().getGenerativeModel({
-      model: "gemini-pro",
+      model: "gemini-2.5-flash",
       systemInstruction: SYSTEM_INSTRUCTION,
       safetySettings,
       generationConfig: {
@@ -209,30 +222,24 @@ export async function POST(req: NextRequest) {
     const raw = result.response.text();
     if (!raw) throw new Error("Empty Gemini response");
 
-    forgeResult = JSON.parse(raw) as ForgeResult;
-  } catch (err) {
-    console.error("[forge] Gemini error:", err);
-    return json({ error: "AI generation failed — please retry" }, 502);
-  }
+    const forgeResult = JSON.parse(raw) as ForgeResult;
 
-  // ── 5. Rarity engine — validate + milestone flag ─────────────────────────
-  const validRarities: Rarity[] = ["Common", "Rare", "Epic", "Legendary"];
-  if (!validRarities.includes(forgeResult.rarity)) {
-    forgeResult.rarity = "Common";
-  }
-  if (!Array.isArray(forgeResult.applicable_topics)) {
-    forgeResult.applicable_topics = [];
-  }
-  if (!Array.isArray(forgeResult.golden_phrases)) {
-    forgeResult.golden_phrases = [];
-  }
-  const milestone = forgeResult.rarity === "Legendary";
+    // ── 5. Rarity engine — validate + milestone flag ───────────────────────
+    const validRarities: Rarity[] = ["Common", "Rare", "Epic", "Legendary"];
+    if (!validRarities.includes(forgeResult.rarity)) {
+      forgeResult.rarity = "Common";
+    }
+    if (!Array.isArray(forgeResult.applicable_topics)) {
+      forgeResult.applicable_topics = [];
+    }
+    if (!Array.isArray(forgeResult.golden_phrases)) {
+      forgeResult.golden_phrases = [];
+    }
+    const milestone = forgeResult.rarity === "Legendary";
 
-  // ── 6. Persist (authenticated users only) ────────────────────────────────
-  if (!isGuest && admin) {
-    const { error: insertError } = await admin
-      .from("cards")
-      .insert({
+    // ── 6. Persist (authenticated users only) ──────────────────────────────
+    if (!isGuest && admin) {
+      const { error: insertError } = await admin.from("cards").insert({
         user_id: userId,
         title: forgeResult.title,
         tags: forgeResult.tags,
@@ -245,29 +252,34 @@ export async function POST(req: NextRequest) {
         user_story,
       });
 
-    if (insertError) {
-      console.error("[forge] DB insert error:", insertError);
+      if (insertError) {
+        console.error("[forge] DB insert error:", insertError);
+      }
+
+      await admin.from("forge_usage").insert({ user_id: userId });
     }
 
-    await admin.from("forge_usage").insert({ user_id: userId });
+    // ── 7. Build response card ─────────────────────────────────────────────
+    const card = {
+      id: isGuest ? `guest-${Date.now()}` : undefined,
+      user_id: userId ?? "guest",
+      title: forgeResult.title,
+      tags: forgeResult.tags,
+      applicable_topics: forgeResult.applicable_topics,
+      script: forgeResult.script,
+      golden_phrases: forgeResult.golden_phrases,
+      rarity: forgeResult.rarity,
+      milestone,
+      cue_card,
+      user_story,
+      saved: false,
+      created_at: new Date().toISOString(),
+    };
+
+    return json({ card, milestone, guest: isGuest });
+  } catch (error) {
+    console.error("[forge] route error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
-
-  // ── 7. Build response card ───────────────────────────────────────────────
-  const card = {
-    id: isGuest ? `guest-${Date.now()}` : undefined,
-    user_id: userId ?? "guest",
-    title: forgeResult.title,
-    tags: forgeResult.tags,
-    applicable_topics: forgeResult.applicable_topics,
-    script: forgeResult.script,
-    golden_phrases: forgeResult.golden_phrases,
-    rarity: forgeResult.rarity,
-    milestone,
-    cue_card,
-    user_story,
-    saved: false,
-    created_at: new Date().toISOString(),
-  };
-
-  return json({ card, milestone, guest: isGuest });
 }
