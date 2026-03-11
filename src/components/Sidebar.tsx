@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Mic } from "lucide-react";
+import { BookMarked, BookOpen, Mic } from "lucide-react";
 
 const navItems = [
   {
@@ -14,6 +14,11 @@ const navItems = [
     href: "/interview",
     label: "实战练习",
     icon: Mic,
+  },
+  {
+    href: "/deck",
+    label: "我的卡组 (My Deck)",
+    icon: BookMarked,
   },
 ];
 
